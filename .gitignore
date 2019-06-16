@@ -21,3 +21,6 @@ dist/*.js
 # Miscellaneous
 .tmp/
 .github/
+
+build
+.vscode

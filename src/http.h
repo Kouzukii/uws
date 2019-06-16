@@ -9,7 +9,7 @@ struct HttpServer {
 
 	struct Request {
 		static void on(const FunctionCallbackInfo<Value> &args) {
-			NativeString eventName(args[0]);
+			NativeString eventName(args.GetIsolate(), args[0]);
 			if (std::string(eventName.getData(), eventName.getLength()) == "data") {
 				args.Holder()->SetInternalField(1, args[1]);
 			} else if (std::string(eventName.getData(), eventName.getLength()) == "end") {
@@ -25,7 +25,7 @@ struct HttpServer {
 			if (!req) {
 				std::cerr << "Warning: req.headers usage past request handler is not supported!" << std::endl;
 			} else {
-				NativeString nativeString(property);
+				NativeString nativeString(args.GetIsolate(), property);
 				uWS::Header header = req->getHeader(nativeString.getData(), nativeString.getLength());
 				if (header) {
 					args.GetReturnValue().Set(String::NewFromOneByte(args.GetIsolate(), (uint8_t *) header.value, NewStringType::kNormal, header.valueLength).ToLocalChecked());
@@ -96,21 +96,21 @@ struct HttpServer {
 			reqTemplateLocal->PrototypeTemplate()->Set(String::NewFromUtf8(isolate, "resume"), FunctionTemplate::New(isolate, Request::resume));
 			reqTemplateLocal->PrototypeTemplate()->Set(String::NewFromUtf8(isolate, "socket"), FunctionTemplate::New(isolate, Request::socket));
 
-			Local<Object> reqObjectLocal = reqTemplateLocal->GetFunction()->NewInstance(isolate->GetCurrentContext()).ToLocalChecked();
+			Local<Object> reqObjectLocal = reqTemplateLocal->GetFunction(isolate->GetCurrentContext()).ToLocalChecked()->NewInstance(isolate->GetCurrentContext()).ToLocalChecked();
 
 			Local<ObjectTemplate> headersTemplate = ObjectTemplate::New(isolate);
 			GenericNamedPropertyGetterCallback Getter = Request::headers;
 			NamedPropertyHandlerConfiguration Configuration(Getter);
 			headersTemplate->SetHandler(Configuration);
 
-			reqObjectLocal->Set(String::NewFromUtf8(isolate, "headers"), headersTemplate->NewInstance());
+			reqObjectLocal->Set(isolate->GetCurrentContext(), String::NewFromUtf8(isolate, "headers"), headersTemplate->NewInstance(isolate->GetCurrentContext()).ToLocalChecked());
 			return reqObjectLocal;
 		}
 	};
 
 	struct Response {
 		static void on(const FunctionCallbackInfo<Value> &args) {
-			NativeString eventName(args[0]);
+			NativeString eventName(args.GetIsolate(), args[0]);
 			if (std::string(eventName.getData(), eventName.getLength()) == "close") {
 				args.Holder()->SetInternalField(1, args[1]);
 			} else {
@@ -122,7 +122,7 @@ struct HttpServer {
 		static void end(const FunctionCallbackInfo<Value> &args) {
 			uWS::HttpResponse *res = (uWS::HttpResponse *) args.Holder()->GetAlignedPointerFromInternalField(0);
 			if (res) {
-				NativeString nativeString(args[0]);
+				NativeString nativeString(args.GetIsolate(), args[0]);
 
 				((Persistent<Object> *) &res->userData)->Reset();
 				((Persistent<Object> *) &res->userData)->~Persistent<Object>();
@@ -136,24 +136,24 @@ struct HttpServer {
 		static void writeHead(const FunctionCallbackInfo<Value> &args) {
 			uWS::HttpResponse *res = (uWS::HttpResponse *) args.Holder()->GetAlignedPointerFromInternalField(0);
 			if (res) {
-				std::string head = "HTTP/1.1 " + std::to_string(args[0]->IntegerValue()) + " ";
+				std::string head = "HTTP/1.1 " + std::to_string(args[0]->IntegerValue(args.GetIsolate()->GetCurrentContext()).FromJust()) + " ";
 
 				if (args.Length() > 1 && args[1]->IsString()) {
-					NativeString statusMessage(args[1]);
+					NativeString statusMessage(args.GetIsolate(), args[1]);
 					head.append(statusMessage.getData(), statusMessage.getLength());
 				} else {
 					head += "OK";
 				}
 
 				if (args[args.Length() - 1]->IsObject()) {
-					Local<Object> headersObject = args[args.Length() - 1]->ToObject();
-					Local<Array> headers = headersObject->GetOwnPropertyNames();
+					Local<Object> headersObject = args[args.Length() - 1]->ToObject(args.GetIsolate()->GetCurrentContext()).ToLocalChecked();
+					Local<Array> headers = headersObject->GetOwnPropertyNames(args.GetIsolate()->GetCurrentContext()).ToLocalChecked();
 					for (int i = 0; i < headers->Length(); i++) {
 						Local<Value> key = headers->Get(i);
 						Local<Value> value = headersObject->Get(key);
 
-						NativeString nativeKey(key);
-						NativeString nativeValue(value);
+						NativeString nativeKey(args.GetIsolate(), key);
+						NativeString nativeValue(args.GetIsolate(), value);
 
 						head += "\r\n";
 						head.append(nativeKey.getData(), nativeKey.getLength());
@@ -172,7 +172,7 @@ struct HttpServer {
 			uWS::HttpResponse *res = (uWS::HttpResponse *) args.Holder()->GetAlignedPointerFromInternalField(0);
 
 			if (res) {
-				NativeString nativeString(args[0]);
+				NativeString nativeString(args.GetIsolate(), args[0]);
 				res->write(nativeString.getData(), nativeString.getLength());
 			}
 		}
@@ -195,7 +195,7 @@ struct HttpServer {
 			resTemplateLocal->PrototypeTemplate()->Set(String::NewFromUtf8(isolate, "on"), FunctionTemplate::New(isolate, Response::on));
 			resTemplateLocal->PrototypeTemplate()->Set(String::NewFromUtf8(isolate, "setHeader"), FunctionTemplate::New(isolate, Response::setHeader));
 			resTemplateLocal->PrototypeTemplate()->Set(String::NewFromUtf8(isolate, "getHeader"), FunctionTemplate::New(isolate, Response::getHeader));
-			return resTemplateLocal->GetFunction()->NewInstance(isolate->GetCurrentContext()).ToLocalChecked();
+			return resTemplateLocal->GetFunction(isolate->GetCurrentContext()).ToLocalChecked()->NewInstance(isolate->GetCurrentContext()).ToLocalChecked();
 		}
 	};
 
@@ -229,19 +229,19 @@ struct HttpServer {
 			reqObject->SetInternalField(4, String::NewFromOneByte(isolate, (uint8_t *) req.getUrl().value, NewStringType::kNormal, req.getUrl().valueLength).ToLocalChecked());
 
 			Local<Value> argv[] = {reqObject, resObject};
-			Local<Function>::New(isolate, *httpRequestCallback)->Call(isolate->GetCurrentContext()->Global(), 2, argv);
+			Local<Function>::New(isolate, *httpRequestCallback)->Call(isolate->GetCurrentContext(), isolate->GetCurrentContext()->Global(), 2, argv);
 
 			if (length) {
 				Local<Value> dataCallback = reqObject->GetInternalField(1);
 				if (!dataCallback->IsUndefined()) {
 					Local<Value> argv[] = {ArrayBuffer::New(isolate, data, length)};
-					Local<Function>::Cast(dataCallback)->Call(isolate->GetCurrentContext()->Global(), 1, argv);
+					Local<Function>::Cast(dataCallback)->Call(isolate->GetCurrentContext(), isolate->GetCurrentContext()->Global(), 1, argv);
 				}
 
 				if (!remainingBytes) {
 					Local<Value> endCallback = reqObject->GetInternalField(2);
 					if (!endCallback->IsUndefined()) {
-						Local<Function>::Cast(endCallback)->Call(isolate->GetCurrentContext()->Global(), 0, nullptr);
+						Local<Function>::Cast(endCallback)->Call(isolate->GetCurrentContext(), isolate->GetCurrentContext()->Global(), 0, nullptr);
 					}
 				}
 			}
@@ -264,7 +264,7 @@ struct HttpServer {
 			// emit res 'close' on aborted response
 			Local<Value> closeCallback = resObject->GetInternalField(1);
 			if (!closeCallback->IsUndefined()) {
-				Local<Function>::Cast(closeCallback)->Call(isolate->GetCurrentContext()->Global(), 0, nullptr);
+				Local<Function>::Cast(closeCallback)->Call(isolate->GetCurrentContext(), isolate->GetCurrentContext()->Global(), 0, nullptr);
 			}
 
 			((Persistent<Object> *) &res->userData)->Reset();
@@ -279,13 +279,13 @@ struct HttpServer {
 			Local<Value> dataCallback = reqObject->GetInternalField(1);
 			if (!dataCallback->IsUndefined()) {
 				Local<Value> argv[] = {ArrayBuffer::New(isolate, data, length)};
-				Local<Function>::Cast(dataCallback)->Call(isolate->GetCurrentContext()->Global(), 1, argv);
+				Local<Function>::Cast(dataCallback)->Call(isolate->GetCurrentContext(), isolate->GetCurrentContext()->Global(), 1, argv);
 			}
 
 			if (!remainingBytes) {
 				Local<Value> endCallback = reqObject->GetInternalField(2);
 				if (!endCallback->IsUndefined()) {
-					Local<Function>::Cast(endCallback)->Call(isolate->GetCurrentContext()->Global(), 0, nullptr);
+					Local<Function>::Cast(endCallback)->Call(isolate->GetCurrentContext(), isolate->GetCurrentContext()->Global(), 0, nullptr);
 				}
 			}
 		});
@@ -301,16 +301,16 @@ struct HttpServer {
 	}
 
 	static void on(const FunctionCallbackInfo<Value> &args) {
-		NativeString eventName(args[0]);
+		NativeString eventName(args.GetIsolate(), args[0]);
 		std::cout << "Warning: server.on(" << std::string(eventName.getData(), eventName.getLength()) << ") is not implemented!" << std::endl;
 	}
 
 	static void listen(const FunctionCallbackInfo<Value> &args) {
 		uWS::Group<uWS::SERVER> *group = (uWS::Group<uWS::SERVER> *) args.Holder()->GetAlignedPointerFromInternalField(0);
-		std::cout << "listen: " << hub.listen(args[0]->IntegerValue(), nullptr, 0, group) << std::endl;
+		std::cout << "listen: " << hub.listen(args[0]->IntegerValue(args.GetIsolate()->GetCurrentContext()).FromJust(), nullptr, 0, group) << std::endl;
 
 		if (args[args.Length() - 1]->IsFunction()) {
-			Local<Function>::Cast(args[args.Length() - 1])->Call(args.GetIsolate()->GetCurrentContext()->Global(), 0, nullptr);
+			Local<Function>::Cast(args[args.Length() - 1])->Call(args.GetIsolate()->GetCurrentContext(), args.GetIsolate()->GetCurrentContext()->Global(), 0, nullptr);
 		}
 	}
 
@@ -320,8 +320,8 @@ struct HttpServer {
 		if (args[0]->IsFunction()) {
 			Local<Function> express = Local<Function>::Cast(args[0]);
 			Local<Context> context = args.GetIsolate()->GetCurrentContext();
-			express->Get(String::NewFromUtf8(isolate, "request"))->ToObject()->SetPrototype(context, Local<Object>::New(args.GetIsolate(), reqTemplate)->GetPrototype());
-			express->Get(String::NewFromUtf8(isolate, "response"))->ToObject()->SetPrototype(context, Local<Object>::New(args.GetIsolate(), resTemplate)->GetPrototype());
+			express->Get(args.GetIsolate()->GetCurrentContext(), String::NewFromUtf8(isolate, "request")).ToLocalChecked()->ToObject(args.GetIsolate()->GetCurrentContext()).ToLocalChecked()->SetPrototype(context, Local<Object>::New(args.GetIsolate(), reqTemplate)->GetPrototype());
+			express->Get(args.GetIsolate()->GetCurrentContext(), String::NewFromUtf8(isolate, "response")).ToLocalChecked()->ToObject(args.GetIsolate()->GetCurrentContext()).ToLocalChecked()->SetPrototype(context, Local<Object>::New(args.GetIsolate(), resTemplate)->GetPrototype());
 
 			// also change app.listen?
 
@@ -353,7 +353,7 @@ struct HttpServer {
 		reqTemplate.Reset(isolate, Request::getTemplateObject(isolate));
 		resTemplate.Reset(isolate, Response::getTemplateObject(isolate));
 
-		Local<Function> httpServerLocal = httpServer->GetFunction();
+		Local<Function> httpServerLocal = httpServer->GetFunction(isolate->GetCurrentContext()).ToLocalChecked();
 		httpPersistent.Reset(isolate, httpServerLocal);
 		return httpServerLocal;
 	}

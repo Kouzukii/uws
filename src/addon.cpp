@@ -1,4 +1,4 @@
-#include "../src/uWS.h"
+#include "../uWebSockets/src/uWS.h"
 #include "addon.h"
 #include "http.h"
 
